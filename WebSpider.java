@@ -6,13 +6,24 @@
  *
  */
 
-import java.net.*;import java.io.*; import java.util.*;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.SocketTimeoutException;
+import java.net.URL;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
+import java.util.TreeSet;
 
 import org.jsoup.Connection.Response;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
 
 
 public abstract class WebSpider {
@@ -21,13 +32,13 @@ public abstract class WebSpider {
 	
 	public Response G_response;
 	
-	public URL G_ThisPageURL;
+	public String G_ThisPageURL;
 	
 	public Map<String,String> G_cookies;
 	
 	public int TAG; // level of recursion.
 	
-	public static final String[] ALLUSERAGENT={"Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36",
+	private static final String[] ALLUSERAGENT={"Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36",
 			//something weird
 			"Mozilla",
 			//Windows edge. 
@@ -41,6 +52,14 @@ public abstract class WebSpider {
 	
 	public HashSet<WebSpider> G_Sypnapse;// create a map to all the other spanning webs. 
 	
+
+	/**
+	 * This is the most genral constructor for this class.
+	 * @param link
+	 * @param referedlink
+	 * @param tag
+	 * @throws IOException
+	 */
 	public WebSpider(String link, String referedlink, int tag) throws IOException
 	{
 		if(referedlink!=null)
@@ -49,6 +68,12 @@ public abstract class WebSpider {
 		{
 			this.loadURL(link);
 		}
+		
+		//set up fields to prevent null pointer.
+		
+		this.G_Similiarwebs= new TreeSet<String>();
+		this.G_Sypnapse = new HashSet<WebSpider>();
+		this.TAG=tag;
 		
 	}
 	
@@ -75,7 +100,7 @@ public abstract class WebSpider {
 		
 				this.G_cookies =response.cookies();
 				this.G_response= response;
-		
+				this.G_ThisPageURL = response.url().toString();
 				this.G_ThispageContent= response.parse();
 				
 				return this;
@@ -85,7 +110,7 @@ public abstract class WebSpider {
 	{
 		System.out.println("Time out; reloading. ");
 		try {
-			Thread.sleep(15000);
+			Thread.sleep(5000);
 		} catch (InterruptedException e1) {
 			
 		}
@@ -94,7 +119,14 @@ public abstract class WebSpider {
 	
 	}
 	
-	public WebSpider loadURL(String url,String referedlink) throws IOException
+	/**
+	 * methods that setup the field. 
+	 * @param url
+	 * @param referedlink
+	 * @return
+	 * @throws IOException
+	 */
+	private WebSpider loadURL(String url,String referedlink) throws IOException
 	{
 		try
 		{
@@ -104,10 +136,11 @@ public abstract class WebSpider {
 				  .cookie("auth", "token").referrer(referedlink)
 				  .timeout(10000).execute();
 		
+				
+		
 				this.G_cookies =response.cookies();
-				
 				this.G_response=response;
-				
+				this.G_ThisPageURL=response.url().toString();
 				this.G_ThispageContent = response.parse();
 		
 		return this;
@@ -130,17 +163,160 @@ public abstract class WebSpider {
 	
 	public abstract WebSpider getSimiliarWebs();
 	
-	public abstract WebSpider growTheWeb();
+	public abstract WebSpider growTheWeb() throws IOException;
 	
-	public abstract WebSpider grabContent();
+	public abstract WebSpider grabContent() throws IOException; 
 	
-	public abstract WebSpider createSynapse();
+	public abstract WebSpider createSynapse(WebSpider ws);
 	
 	
 	public String toString()
 	{
-		return "This is the web link\n\t"+this.G_ThisPageURL;
+		return "This is the web link:"+this.G_ThisPageURL;
 	}
+	
+	private void printSturcture(String indent)
+	{
+		System.out.println(this);
+		if(this.G_Sypnapse!=null&&this.G_Sypnapse.size()>0)
+		{
+			System.out.println("Subwebs: ");
+			for(WebSpider w :this.G_Sypnapse )
+			{
+				System.out.println(indent+" " + w);
+			}
+		}
+	}
+	
+	public void printSturcture()
+	{
+		this.printSturcture(" ");
+	}
+	
+	/**
+	 * gives a string of url and this this will travel through the structure to 
+	 * see if url has been visited. it doesn't check the similiar webs in each obj.
+	 * @return
+	 */
+	public boolean haveVisited(String url)
+	{
+		if(this.G_ThisPageURL.equals(url))
+		{return true;}
+		else
+		{
+				Iterator<WebSpider> itr = this.G_Sypnapse.iterator();
+				while(itr.next()!=null)
+				{
+					if(itr.next().haveVisited(url))return true;
+				}
+				return false;
+		}
+		
+	}
+	
+	
+	/**
+	 * 
+	 * This is a class that will handle the dowonloading features of the pages. 
+	 * Gien the web link,and the directory, this class will do all the things 
+	 * automaticaly, sequencially. 
+	 * @author victo
+	 *
+	 */
+	public static class SmartDownload
+	{
+		
+		public final String G_direct;
+		// the system directory£¡
+		
+		
+		public SmartDownload(String Dire)
+		{
+			this.G_direct = Dire;
+		}
+
+		public SmartDownload BulkDownload(Set<URL> pool) throws MalformedURLException, IOException
+		{
+			for(URL s : pool)
+			{
+				if(s!= null)this.downLoad(s);
+			}
+			return this;
+		}
+		
+		
+		
+		public SmartDownload downLoad(String url) throws MalformedURLException, IOException
+		{
+			downloadFromURL(new URL(url), this.G_direct);
+			return this;
+		}
+		
+		
+		
+		public SmartDownload downLoad(URL url) throws MalformedURLException, IOException
+		{
+			
+			downloadFromURL(url, this.G_direct);
+			
+			return this;
+			
+		}
+		
+		
+		
+		
+		public static File downloadFromURL(URL arg, String directory) throws IOException 
+		{
+			
+			File f = new File(directory+URLTrimToString(arg));
+			
+			if(!f.getParentFile().exists())
+			{
+				f.getParentFile().mkdirs();
+			}
+			if(!f.exists())
+			{
+			
+			BufferedInputStream bis = new BufferedInputStream(arg.openStream());
+			FileOutputStream fos = new FileOutputStream(f);
+			BufferedOutputStream bos = new BufferedOutputStream(fos);
+			
+			for ( int i; (i = bis.read()) != -1; ) {
+			    bos.write(i);
+			}
+			bis.close();
+			bos.close();
+			
+			System.out.println(f.toString()+">>>>> Is created from the url.");
+			}
+			else
+			{
+				System.out.println("The file aready exists. ");
+			}
+			
+			return f; 
+		}
+
+		/**
+		 * gives a web link it will trim to the last 
+		 * string section that can be used as a proper name.
+		 * @param arg
+		 * @return
+		 */
+		public static String URLTrimToString(URL arg)
+		{
+			String str = arg.toString();
+			int i = str.lastIndexOf('/');
+			str = str.substring(i, str.length());
+			return str;
+		}
+		
+		
+		
+	}
+	
+	
 	
 }
 	
